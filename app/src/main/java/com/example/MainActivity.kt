@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -144,7 +145,14 @@ fun WorkflowSimulatorApp() {
     currentLoggedInUserId = ""
     currentUserRole = ""
     isLoggedIn = false
-    appendLog("AUTH", "User cleared session credentials. Disconnected from live stream.")
+    try {
+      com.google.firebase.auth.FirebaseAuth.getInstance().signOut()
+      appendLog("AUTH", "Successfully signed out of Firebase Authentication.")
+    } catch (e: Exception) {
+      appendLog("AUTH", "Firebase Auth sign out skipped (Firebase app not initialized).")
+    }
+    appendLog("AUTH", "Session cleared. Returned to login screen.")
+    Toast.makeText(context, "Logged out successfully!", Toast.LENGTH_SHORT).show()
   }
 
   // Main UI Shell
@@ -194,15 +202,13 @@ fun WorkflowSimulatorApp() {
           // Working Portal Mode Screen
           DashboardLayout(
             employeeId = currentLoggedInUserId,
-            userRole = currentUserRole,
-            employees = employeesCollection,
             dailyLogs = dailyActivitiesCollection,
-            monthlyReports = monthlyReportsCollection,
             onLogActivity = { activitiesText ->
               val todayFormatted = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
               val log = DailyActivity(employeeId = currentLoggedInUserId, date = todayFormatted, activities = activitiesText)
               dailyActivitiesCollection.add(log)
               appendLog("FIRESTORE", "Successfully added document into `/daily_activities` path: ${log.id}")
+              Toast.makeText(context, "Activity logged successfully!", Toast.LENGTH_SHORT).show()
             },
             onMonthlyCompile = { empId ->
               // Simulating End-Of-Month Scheduled PubSub process
@@ -250,41 +256,13 @@ fun WorkflowSimulatorApp() {
               appendLog("CLOUD_FUNCTIONS", "[Schedule Trigger v2] Compiled logs for Employee #$empId. Initiating email dispatcher...")
               appendLog("CLOUD_FUNCTIONS", "[Email Dispatch] Sent review deep link to Reporting Manager at ${empInfo.managerEmail}")
               Toast.makeText(context, "Pub/Sub compilation finished! Report sent to Manager.", Toast.LENGTH_LONG).show()
-            },
-            onManagerAction = { reportId, updateStatus ->
-              val report = monthlyReportsCollection.find { it.id == reportId }
-              if (report != null) {
-                // 1. Change to Approved by Manager
-                report.status = "Approved by Manager"
-                report.approvedAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-                appendLog("FIRESTORE", "Document updated `/monthly_reports/$reportId` status -> \"Approved by Manager\"")
-                
-                // 2. Trigger onUpdate simulation
-                appendLog("CLOUD_FUNCTIONS", "[onUpdate Trigger v2] State change detected on report: $reportId")
-                appendLog("CLOUD_FUNCTIONS", "[onUpdate Escalation] Changing database status model to 'Sent to Admin'...")
-                
-                // Complete update flow
-                report.status = "Sent to Admin"
-                report.sentToAdminAt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()).format(Date())
-                
-                // Refresh list state manually to trigger recomposition
-                val idx = monthlyReportsCollection.indexOf(report)
-                if (idx != -1) {
-                  monthlyReportsCollection[idx] = report.copy(status = "Sent to Admin")
-                }
-
-                appendLog("FIRESTORE", "Document updated `/monthly_reports/$reportId` status -> \"Sent to Admin\"")
-                appendLog("CLOUD_FUNCTIONS", "[Email Escalated] Sent approved activity statement with payload to Admin Team: admin-team@company.com")
-                Toast.makeText(context, "Manager Approved! Escalated automatically to Admin via Cloud Functions.", Toast.LENGTH_LONG).show()
-              }
-            },
-            appendLog = ::appendLog
+            }
           )
         }
       }
 
-      // Live Development & Firebase Console Log Console (Bottom Panel)
-      BackendTerminalConsole(logs = consoleLogs)
+      // Live Development & Firebase Console Log Console (Bottom Panel hidden)
+      // BackendTerminalConsole(logs = consoleLogs)
     }
   }
 }
@@ -366,17 +344,27 @@ fun HeaderPanel(
             )
           }
 
-          IconButton(
+          Button(
             onClick = onLogout,
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2C1919)),
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+            shape = RoundedCornerShape(20.dp),
             modifier = Modifier
-              .size(32.dp)
+              .height(32.dp)
               .testTag("logout_button")
           ) {
             Icon(
               imageVector = Icons.AutoMirrored.Filled.ExitToApp,
               contentDescription = "Log out",
               tint = Color(0xFFFF5F5F),
-              modifier = Modifier.size(20.dp)
+              modifier = Modifier.size(16.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+              text = "Log Out",
+              color = Color(0xFFFFC0C0),
+              fontSize = 11.sp,
+              fontWeight = FontWeight.Bold
             )
           }
         }
@@ -650,74 +638,26 @@ fun LocalLoginLayout(
 }
 
 // ==========================================
-// WORKSPACE DASHBOARD (TAB-ROUTED LOGIC)
+// WORKSPACE DASHBOARD (TAB-ROUTED LOGIC REMOVED)
 // ==========================================
 @Composable
 fun DashboardLayout(
   employeeId: String,
-  userRole: String,
-  employees: List<EmployeeUser>,
   dailyLogs: List<DailyActivity>,
-  monthlyReports: List<MonthlyReport>,
   onLogActivity: (String) -> Unit,
-  onMonthlyCompile: (String) -> Unit,
-  onManagerAction: (String, String) -> Unit,
-  appendLog: (String, String) -> Unit
+  onMonthlyCompile: (String) -> Unit
 ) {
-  var selectedTab by remember { mutableStateOf(if (userRole == "manager") 1 else 0) }
-
-  Column(modifier = Modifier.fillMaxSize()) {
-    // Top Tabs
-    TabRow(
-      selectedTabIndex = selectedTab,
-      containerColor = TealSurface,
-      contentColor = TealPrimary,
-      indicator = { tabPositions ->
-        TabRowDefaults.SecondaryIndicator(
-          modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-          color = TealPrimary
-        )
-      }
-    ) {
-      Tab(
-        selected = selectedTab == 0,
-        onClick = { selectedTab = 0 },
-        text = { Text("Employee Log Form") },
-        icon = { Icon(Icons.Default.Create, contentDescription = null) }
-      )
-      Tab(
-        selected = selectedTab == 1,
-        onClick = { selectedTab = 1 },
-        text = { Text("Manager Review") },
-        icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) }
-      )
-    }
-
-    Box(
-      modifier = Modifier
-        .weight(1f)
-        .fillMaxWidth()
-        .padding(16.dp)
-    ) {
-      if (selectedTab == 0) {
-        // Employee Tab Frame
-        EmployeeLogPanel(
-          employeeId = employeeId,
-          dailyLogs = dailyLogs.filter { it.employeeId == employeeId },
-          onSubmitActivity = onLogActivity,
-          onTriggerEOMAggregation = onMonthlyCompile
-        )
-      } else {
-        // Manager Approval Frame
-        ManagerPortalPanel(
-          currentUserRole = userRole,
-          currentManagerId = employeeId,
-          reports = monthlyReports,
-          onApproveReport = onManagerAction,
-          appendLog = appendLog
-        )
-      }
-    }
+  Box(
+    modifier = Modifier
+      .fillMaxSize()
+      .padding(16.dp)
+  ) {
+    EmployeeLogPanel(
+      employeeId = employeeId,
+      dailyLogs = dailyLogs.filter { it.employeeId == employeeId },
+      onSubmitActivity = onLogActivity,
+      onTriggerEOMAggregation = onMonthlyCompile
+    )
   }
 }
 
@@ -733,6 +673,8 @@ fun EmployeeLogPanel(
 ) {
   var activitiesInput by remember { mutableStateOf("") }
   val currentDateStr = remember { SimpleDateFormat("EEEE, MMMM dd, yyyy", Locale.getDefault()).format(Date()) }
+  val keyboardController = LocalSoftwareKeyboardController.current
+  val context = LocalContext.current
 
   LazyColumn(
     modifier = Modifier.fillMaxSize(),
@@ -797,6 +739,10 @@ fun EmployeeLogPanel(
           )
           Spacer(modifier = Modifier.height(12.dp))
 
+          val trimmedLength = activitiesInput.trim().length
+          val isInputTooShort = activitiesInput.isNotEmpty() && trimmedLength < 15
+          val isInputValid = trimmedLength >= 15
+
           // Fixed 5 lines TextField as requested in UI paradigms
           OutlinedTextField(
             value = activitiesInput,
@@ -808,25 +754,73 @@ fun EmployeeLogPanel(
               .height(135.dp) // Generous height to fit about 5 lines
               .testTag("activities_field"),
             maxLines = 5,
+            isError = isInputTooShort,
             colors = OutlinedTextFieldDefaults.colors(
               focusedBorderColor = TealPrimary,
-              unfocusedBorderColor = TealSurfaceVariant
+              unfocusedBorderColor = TealSurfaceVariant,
+              errorBorderColor = ErrorRed,
+              errorLabelColor = ErrorRed,
+              errorTextColor = Color.White
             )
           )
+
+          // Immediate Visual Feedback Row
+          Row(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(top = 4.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+          ) {
+            if (isInputTooShort) {
+              Text(
+                text = "❌ Too short! Need ${15 - trimmedLength} more characters",
+                color = ErrorRed,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+              )
+            } else if (isInputValid) {
+              Text(
+                text = "✓ Log requirements met",
+                color = StatusApproved,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+              )
+            } else {
+              Text(
+                text = "Enter at least 15 characters to log your activity",
+                color = TealTextSecondary,
+                fontSize = 12.sp
+              )
+            }
+
+            Text(
+              text = "$trimmedLength / 15",
+              color = if (isInputValid) StatusApproved else if (trimmedLength > 0) ErrorRed else TealTextSecondary,
+              fontSize = 12.sp,
+              fontWeight = FontWeight.Bold
+            )
+          }
 
           Spacer(modifier = Modifier.height(12.dp))
 
           Button(
             onClick = {
-              if (activitiesInput.trim().isNotEmpty()) {
-                onSubmitActivity(activitiesInput)
+              val textToSubmit = activitiesInput
+              if (textToSubmit.trim().length < 15) {
+                Toast.makeText(context, "Log is too short! Must be at least 15 characters.", Toast.LENGTH_SHORT).show()
+              } else {
                 activitiesInput = ""
+                onSubmitActivity(textToSubmit)
+                keyboardController?.hide()
               }
             },
             modifier = Modifier
               .align(Alignment.End)
               .testTag("submit_activity_button"),
-            colors = ButtonDefaults.buttonColors(containerColor = TealPrimary)
+            colors = ButtonDefaults.buttonColors(
+              containerColor = if (isInputValid) TealPrimary else TealPrimary.copy(alpha = 0.5f)
+            )
           ) {
             Icon(Icons.Default.Add, contentDescription = null, tint = TealOnPrimary)
             Spacer(modifier = Modifier.width(6.dp))
@@ -836,7 +830,8 @@ fun EmployeeLogPanel(
       }
     }
 
-    // Requirement 4 scheduled emulator trigger
+    // Requirement 4 scheduled emulator trigger (hidden)
+    /*
     item {
       Card(
         shape = RoundedCornerShape(12.dp),
@@ -876,6 +871,7 @@ fun EmployeeLogPanel(
         }
       }
     }
+    */
 
     // Historical Logs Feed
     item {
@@ -927,225 +923,7 @@ fun EmployeeLogPanel(
   }
 }
 
-// ==========================================
-// REQUIREMENT 5: MANAGER REVIEW & ONUPDATE TRIGGER
-// ==========================================
-@Composable
-fun ManagerPortalPanel(
-  currentUserRole: String,
-  currentManagerId: String,
-  reports: List<MonthlyReport>,
-  onApproveReport: (String, String) -> Unit,
-  appendLog: (String, String) -> Unit
-) {
-  val context = LocalContext.current
 
-  LazyColumn(
-    modifier = Modifier.fillMaxSize(),
-    verticalArrangement = Arrangement.spacedBy(16.dp)
-  ) {
-    // Guard check warning if current user is Employee but viewing manager tab
-    if (currentUserRole != "manager") {
-      item {
-        Card(
-          colors = CardDefaults.cardColors(containerColor = Color(0xFF3A211B)),
-          modifier = Modifier.fillMaxWidth()
-        ) {
-          Column(modifier = Modifier.padding(16.dp)) {
-            Text(
-              text = "⚠️ Restricted Section - Role Manager Required",
-              fontWeight = FontWeight.Bold,
-              color = ErrorRed,
-              fontSize = 14.sp
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-              text = "You are authenticated as an 'employee' role. Although you can view this simulation tab, your manager login credentials (ID '9999') are typically required to initiate approval workflows.",
-              fontSize = 11.sp,
-              color = Color(0xFFFFCDC5),
-              lineHeight = 15.sp
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Button(
-              onClick = {
-                Toast.makeText(context, "Log in as Manager Chen (9999 / mgr12345)", Toast.LENGTH_LONG).show()
-              },
-              colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
-              modifier = Modifier.fillMaxWidth()
-            ) {
-              Text("ROLE DEMO REMINDER")
-            }
-          }
-        }
-      }
-    }
-
-    item {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-      ) {
-        Text(
-          text = "📋 Pending Compiled Reports Approval",
-          fontSize = 14.sp,
-          fontWeight = FontWeight.Bold,
-          color = TealPrimary
-        )
-        Text(
-          text = "Reports Count: ${reports.size}",
-          fontSize = 11.sp,
-          color = TealTextSecondary
-        )
-      }
-    }
-
-    if (reports.isEmpty()) {
-      item {
-        Box(
-          modifier = Modifier
-            .fillMaxWidth()
-            .background(TealSurface, RoundedCornerShape(12.dp))
-            .padding(32.dp),
-          contentAlignment = Alignment.Center
-        ) {
-          Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealTextSecondary, modifier = Modifier.size(32.dp))
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("No compiled logs available.", color = TealTextSecondary, fontSize = 12.sp, textAlign = TextAlign.Center)
-            Text(
-              "Go back to the Employee Log Form and click 'RUN SCHEDULED ACCUMULATOR CRON' to generate compile items.",
-              fontSize = 10.sp,
-              color = TealTextSecondary.copy(alpha = 0.7f),
-              textAlign = TextAlign.Center,
-              modifier = Modifier.padding(top = 4.dp)
-            )
-          }
-        }
-      }
-    } else {
-      items(reports) { report ->
-        Card(
-          shape = RoundedCornerShape(12.dp),
-          colors = CardDefaults.cardColors(containerColor = TealSurface),
-          border = borderStroke(
-            if (report.status == "Sent to Admin") StatusEscalated.copy(alpha = 0.5f) else StatusPending.copy(alpha = 0.5f)
-          )
-        ) {
-          Column(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(16.dp)
-          ) {
-            // Header Row
-            Row(
-              modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.SpaceBetween,
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              Column {
-                Text(
-                  text = "Employee ID #${report.employeeId}",
-                  fontWeight = FontWeight.Bold,
-                  fontSize = 15.sp,
-                  color = Color.White
-                )
-                Text(
-                  text = "Period: ${report.monthYear}",
-                  fontSize = 11.sp,
-                  color = TealTextSecondary
-                )
-              }
-
-              // Custom Status Pill
-              Box(
-                modifier = Modifier
-                  .clip(RoundedCornerShape(8.dp))
-                  .background(
-                    when (report.status) {
-                      "Sent to Admin" -> StatusEscalated.copy(alpha = 0.15f)
-                      "Approved by Manager" -> StatusApproved.copy(alpha = 0.15f)
-                      else -> StatusPending.copy(alpha = 0.15f)
-                    }
-                  )
-                  .padding(horizontal = 8.dp, vertical = 4.dp)
-              ) {
-                Text(
-                  text = report.status,
-                  fontSize = 11.sp,
-                  fontWeight = FontWeight.Bold,
-                  color = when (report.status) {
-                    "Sent to Admin" -> StatusEscalated
-                    "Approved by Manager" -> StatusApproved
-                    else -> StatusPending
-                  }
-                )
-              }
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-            Divider(color = TealSurfaceVariant)
-            Spacer(modifier = Modifier.height(10.dp))
-
-            // Body Aggregated Activities Text Box
-            Text(
-              text = report.aggregatedActivities,
-              fontSize = 12.sp,
-              lineHeight = 16.sp,
-              color = TealTextPrimary,
-              maxLines = 10,
-              overflow = TextOverflow.Ellipsis,
-              modifier = Modifier
-                .background(TealSurfaceVariant, RoundedCornerShape(6.dp))
-                .padding(10.dp)
-                .fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (report.status == "Pending Manager Approval") {
-              Button(
-                onClick = {
-                  onApproveReport(report.id, "Approved by Manager")
-                },
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .testTag("approve_button_${report.employeeId}"),
-                colors = ButtonDefaults.buttonColors(containerColor = TealPrimary)
-              ) {
-                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = TealOnPrimary)
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("APPROVE & TRANSMIT", color = TealOnPrimary, fontWeight = FontWeight.Bold)
-              }
-            } else if (report.status == "Sent to Admin") {
-              Row(
-                modifier = Modifier
-                  .fillMaxWidth()
-                  .background(TealSurfaceVariant, RoundedCornerShape(6.dp))
-                  .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-              ) {
-                Icon(
-                  imageVector = Icons.Default.Info,
-                  contentDescription = null,
-                  tint = StatusApproved,
-                  modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                  text = "Escalation Complete: Dispatched logs to admin-team@company.com",
-                  fontSize = 10.sp,
-                  fontWeight = FontWeight.SemiBold,
-                  color = StatusApproved
-                )
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
 
 // ==========================================
 // STYLISH CONSOLE TERMINAL EXPLAINER LOG
