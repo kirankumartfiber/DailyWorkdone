@@ -1,5 +1,5 @@
 {
-  "name": "Monthly Approval Portal",
+  "name": "Daily Activities App",
   "description": "Custom authentication and monthly employee hours approval workflow simulator.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
