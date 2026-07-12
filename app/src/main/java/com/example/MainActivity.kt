@@ -435,13 +435,9 @@ fun HeaderPanel(
         Image(
           painter = painterResource(id = R.drawable.tfiber_logo),
           contentDescription = "T-Fiber Logo",
-          modifier = Modifier.height(30.dp)
+          modifier = Modifier.height(50.dp)
         )
         Spacer(modifier = Modifier.width(8.dp))
-        Column {
-          Text("T-Fiber", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TealPrimary)
-
-        }
       }
 
       if (isLoggedIn) {
