@@ -22,7 +22,7 @@ private val DarkColorScheme =
     onBackground = TealTextPrimary,
     onSurface = TealTextPrimary,
     surfaceVariant = TealSurfaceVariant,
-    onSurfaceVariant = TealTextSecondary
+    onSurfaceVariant = TealTextSecondary,
   )
 
 private val LightColorScheme =
@@ -46,7 +46,7 @@ fun MyApplicationTheme(
 ) {
   val colorScheme =
     when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+      (dynamicColor && (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)) -> {
         val context = LocalContext.current
         if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
       }
