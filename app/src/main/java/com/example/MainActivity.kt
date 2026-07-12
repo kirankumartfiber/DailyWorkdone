@@ -430,8 +430,8 @@ fun HeaderPanel(
       horizontalArrangement = Arrangement.SpaceBetween
     ) {
       Column {
-        Text("Telangana Fiber Grid Corporation Ltd.", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TealPrimary)
-        Text("Work Done Today ", fontSize = 11.sp, color = TealTextSecondary)
+        Text("T-Fiber", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TealPrimary)
+        Text("Activities Completed Today", fontSize = 11.sp, color = TealTextSecondary)
       }
 
       if (isLoggedIn) {
