@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.biometric.BiometricPrompt
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -17,7 +18,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.filled.Face
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -40,6 +41,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
+import com.example.R
 import com.example.ui.theme.*
 import java.util.*
 
@@ -302,7 +304,7 @@ fun RegistrationLayout(onRegisterSuccess: (String, String) -> Unit) {
           onClick = {
             if (empIdInput.length != 4) {
               error = "Employee ID must be 4 digits"
-            } else if (passwordInput.length < 6 || passwordInput.length > 8) {
+            } else if (passwordInput.length !in 6..8) {
               error = "Password must be 6-8 characters"
             } else {
               onRegisterSuccess(empIdInput, passwordInput)
@@ -429,14 +431,22 @@ fun HeaderPanel(
       verticalAlignment = Alignment.CenterVertically,
       horizontalArrangement = Arrangement.SpaceBetween
     ) {
-      Column {
-        Text("T-Fiber", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TealPrimary)
-        Text("Activities Completed Today", fontSize = 11.sp, color = TealTextSecondary)
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Image(
+          painter = painterResource(id = R.drawable.tfiber_logo),
+          contentDescription = "T-Fiber Logo",
+          modifier = Modifier.height(30.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Column {
+          Text("T-Fiber", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = TealPrimary)
+
+        }
       }
 
       if (isLoggedIn) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-          Text("#$userId", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+          Text("Emp ID#$userId", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 12.sp)
           Spacer(modifier = Modifier.width(8.dp))
           IconButton(onClick = onLogout) {
             Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color(0xFFFF5F5F))
