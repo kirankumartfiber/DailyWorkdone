@@ -2,6 +2,7 @@ package com.example
 
 import android.content.Context
 import android.os.Bundle
+import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
@@ -17,6 +18,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.*
@@ -43,6 +45,7 @@ import androidx.core.content.edit
 import androidx.fragment.app.FragmentActivity
 import com.example.R
 import com.example.ui.theme.*
+import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : FragmentActivity() {
@@ -74,6 +77,10 @@ fun WorkflowSimulatorApp() {
   var showFaceIdRegistration by remember { mutableStateOf(value = false) }
   var usePasswordLogin by remember { mutableStateOf(value = false) }
 
+  val todayDate = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
+  var lastSubmissionDate by remember { mutableStateOf(sharedPrefs.getString("last_sub_date", "") ?: "") }
+  val isSubmittedToday = lastSubmissionDate == todayDate
+
   val isUserRegistered = registeredEmpId.isNotEmpty() && registeredPsw.isNotEmpty()
 
   // Handle Logout / Reset
@@ -96,7 +103,15 @@ fun WorkflowSimulatorApp() {
     isLoggedIn = false
     isFaceIdRegistered = false
     usePasswordLogin = false
+    lastSubmissionDate = ""
     Toast.makeText(context, "App data reset!", Toast.LENGTH_SHORT).show()
+  }
+
+  val onFormSubmitted = {
+    sharedPrefs.edit {
+      putString("last_sub_date", todayDate)
+    }
+    lastSubmissionDate = todayDate
   }
 
   val onFaceIdRegistered = {
@@ -214,7 +229,17 @@ fun WorkflowSimulatorApp() {
           }
         } else {
           // WebView Screen
-          WebViewLayout(employeeId = currentLoggedInUserId)
+          if (isSubmittedToday) {
+            AlreadySubmittedScreen()
+          } else {
+            WebViewLayout(
+              employeeId = currentLoggedInUserId,
+              onSubmissionDetected = {
+                onFormSubmitted()
+                Toast.makeText(context, "Activity logged for today!", Toast.LENGTH_LONG).show()
+              }
+            )
+          }
         }
 
         if (showFaceIdRegistration) {
@@ -454,7 +479,35 @@ fun HeaderPanel(
 }
 
 @Composable
-fun WebViewLayout(employeeId: String) {
+fun AlreadySubmittedScreen() {
+  Box(modifier = Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+      Icon(
+        imageVector = Icons.Default.CheckCircle,
+        contentDescription = "Success",
+        tint = TealPrimary,
+        modifier = Modifier.size(100.dp)
+      )
+      Spacer(modifier = Modifier.height(24.dp))
+      Text(
+        "RESPONSE SUBMITTED",
+        fontSize = 22.sp,
+        fontWeight = FontWeight.Bold,
+        color = Color.White
+      )
+      Spacer(modifier = Modifier.height(8.dp))
+      Text(
+        "You have already completed your activities log for today. Great job!",
+        fontSize = 14.sp,
+        color = TealTextSecondary,
+        textAlign = TextAlign.Center
+      )
+    }
+  }
+}
+
+@Composable
+fun WebViewLayout(employeeId: String, onSubmissionDetected: () -> Unit) {
   val url = "https://zfrmz.in/kBsJshOp1vfbQRFyZrpR"
   AndroidView(
     factory = { context ->
@@ -462,9 +515,20 @@ fun WebViewLayout(employeeId: String) {
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         webViewClient = object : WebViewClient() {
+          override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+            val requestUrl = request?.url?.toString() ?: ""
+            // Zoho Forms usually redirect to a URL with /formperma/ or similar upon success
+            // We can also monitor if it goes to a different base URL
+            if (requestUrl.contains("success") || requestUrl.contains("thankyou")) {
+              onSubmissionDetected()
+            }
+            return super.shouldOverrideUrlLoading(view, request)
+          }
+
           override fun onPageFinished(view: WebView?, url: String?) {
             val script = """
               (function() {
+                // Autofill Employee ID
                 var labels = document.getElementsByTagName('label');
                 for (var i = 0; i < labels.length; i++) {
                   if (labels[i].innerText.toLowerCase().includes('employee id')) {
@@ -477,12 +541,31 @@ fun WebViewLayout(employeeId: String) {
                         input.dispatchEvent(new Event('change', { bubbles: true }));
                       }
                     }
-                    break;
                   }
                 }
+
+                // Detect Success Message in DOM
+                var observer = new MutationObserver(function(mutations) {
+                  var text = document.body.innerText;
+                  if (text.includes('submitted successfully') || text.includes('Thank you')) {
+                    window.location.href = 'app://success';
+                  }
+                });
+                observer.observe(document.body, { childList: true, subtree: true });
               })();
             """.trimIndent()
             view?.evaluateJavascript(script, null)
+
+            if (url == "app://success") {
+                onSubmissionDetected()
+            }
+          }
+
+          override fun onLoadResource(view: WebView?, url: String?) {
+              super.onLoadResource(view, url)
+              if (url?.contains("app://success") == true) {
+                  onSubmissionDetected()
+              }
           }
         }
         loadUrl(url)
